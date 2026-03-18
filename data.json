@@ -1,0 +1,148 @@
+{
+  "settings": {
+    "leagueLimits": {
+      "1": 780000,
+      "2": 900000,
+      "3": 1020000,
+      "4": 1200000,
+      "5": 1500000,
+      "6": 1800000
+    },
+    "pendingDisplacements": {},
+    "loggingEnabled": true
+  },
+  "channels": {
+    "1482789303615488135": {
+      "competition": {
+        "leagueNumber": 1,
+        "maxTimeLimitSeconds": 780,
+        "status": "active",
+        "startedAt": "2026-03-15T17:16:14.397Z",
+        "endedAt": null,
+        "seeds": {
+          "1": {
+            "name": "1",
+            "playerCount": 13,
+            "timeLimitSeconds": 780,
+            "editingEnabled": true,
+            "createdAt": "2026-03-15T17:16:35.131Z",
+            "results": {
+              "1180267018696536074": {
+                "userId": "1180267018696536074",
+                "username": "iamovertheageofthirteen",
+                "dnf": false,
+                "placement": 1,
+                "timeSeconds": 480,
+                "submittedAt": "2026-03-15T17:17:45.356Z"
+              }
+            }
+          },
+          "2": {
+            "name": "2",
+            "playerCount": 13,
+            "timeLimitSeconds": 780,
+            "editingEnabled": true,
+            "createdAt": "2026-03-15T17:18:22.488Z",
+            "results": {
+              "1180267018696536074": {
+                "userId": "1180267018696536074",
+                "username": "iamovertheageofthirteen",
+                "dnf": true,
+                "placement": null,
+                "timeSeconds": null,
+                "submittedAt": "2026-03-15T17:18:45.969Z"
+              }
+            }
+          },
+          "3": {
+            "name": "3",
+            "playerCount": 13,
+            "timeLimitSeconds": 780,
+            "editingEnabled": true,
+            "createdAt": "2026-03-15T17:19:58.560Z",
+            "results": {
+              "1180267018696536074": {
+                "userId": "1180267018696536074",
+                "username": "iamovertheageofthirteen",
+                "dnf": false,
+                "placement": 2,
+                "timeSeconds": 480,
+                "submittedAt": "2026-03-15T17:20:14.144Z"
+              }
+            }
+          }
+        },
+        "pointAdjustments": {},
+        "playerCount": 0,
+        "registeredPlayers": {}
+      }
+    },
+    "1482791899554250955": {
+      "competition": null
+    },
+    "1483910669794279466": {
+      "competition": {
+        "leagueNumber": 2,
+        "maxTimeLimitSeconds": 900000,
+        "status": "active",
+        "startedAt": "2026-03-18T19:31:29.550Z",
+        "endedAt": null,
+        "currentSeedKey": "1",
+        "seeds": {
+          "1": {
+            "name": "1",
+            "playerCount": 2,
+            "timeLimitSeconds": 900000,
+            "editingEnabled": true,
+            "createdAt": "2026-03-18T19:32:00.955Z",
+            "results": {
+              "1180267018696536074": {
+                "userId": "1180267018696536074",
+                "username": "iamovertheageofthirteen",
+                "discordUsername": "iamovertheageofthirteen",
+                "ign": "BoboTheFLyingBox",
+                "dnf": true,
+                "placement": null,
+                "timeSeconds": null,
+                "submittedAt": "2026-03-18T19:33:35.928Z"
+              },
+              "539602719149916170": {
+                "userId": "539602719149916170",
+                "username": "._solee_.",
+                "discordUsername": "._solee_.",
+                "ign": "ShrillWeevil",
+                "dnf": true,
+                "placement": null,
+                "timeSeconds": null,
+                "submittedAt": "2026-03-18T19:33:35.928Z"
+              }
+            }
+          }
+        },
+        "pointAdjustments": {},
+        "registeredPlayers": {
+          "1180267018696536074": {
+            "userId": "1180267018696536074",
+            "username": "iamovertheageofthirteen",
+            "discordUsername": "iamovertheageofthirteen",
+            "ign": "BoboTheFLyingBox",
+            "registeredAt": "2026-03-18T19:31:53.939Z"
+          },
+          "539602719149916170": {
+            "userId": "539602719149916170",
+            "username": "._solee_.",
+            "discordUsername": "._solee_.",
+            "ign": "ShrillWeevil",
+            "registeredAt": "2026-03-18T19:33:27.183Z"
+          }
+        },
+        "registrationOpen": true,
+        "registrationMessageId": "1483910739885428786",
+        "manualPromotionCount": null,
+        "manualDemotionCount": null,
+        "movementsApplied": false,
+        "playerCount": 0
+      }
+    }
+  }
+}
