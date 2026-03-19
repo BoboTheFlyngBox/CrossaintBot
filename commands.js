@@ -238,6 +238,10 @@ module.exports = [
     ],
   },
   {
+    name: 'link',
+    description: 'Shows the user how to connect their Discord and Ranked accounts',
+  },
+  {
     name: 'help',
     description: 'Links the list of commands for this bot as well as extra information.',
   },

@@ -209,7 +209,7 @@ async function uRegMsg(channel, c) {
     await message.edit(mkRegMsg(c));
   } catch(error) { 
       //ignore
-   }
+  }
 }
 
 async function cRegMsg(channel, c) {
@@ -1114,7 +1114,7 @@ async function getUserDataFromDiscord(id) {
       }
       return await response.json();
     } catch(err){
-      throw new Error('Could not find a Minecraft account linked to your account. Please link your discord to your MCSR Ranked account. In the MCSR Ranked client, go to your Ranked **Profile** -> **Settings** -> **Link Discord** and follow the instructions in the browser. Make sure it says Public: **ON**');
+      throw new Error('Could not find a Minecraft account linked to your discord account. For help linking your account run /link');
     }
 }
 
@@ -1283,7 +1283,7 @@ client.on('interactionCreate', async (interaction) => {
       });
       return;
     }
-
+  
     if(interaction.commandName === 'ns'){
       if(!admin){
         await interaction.reply({ content: 'Only users with the League Administrator role can create seeds.', ephemeral: true });
@@ -1362,6 +1362,23 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply(lines.join('\n'));
       return;
     }
+
+    if(interaction.commandName === 'link'){
+      const competition = rA(store, gCK(interaction));
+      const leagueNumber = gLC(interaction, competition, admin);
+
+      const link1 = new AttachmentBuilder('./images/Profile1.png', { name: 'link_step1.png' });
+      const link2 = new AttachmentBuilder('./images/Profile2.png', { name: 'link_step2.png' });
+      const link3 = new AttachmentBuilder('./images/Profile3.png', { name: 'link_step3.png' });
+      await interaction.reply({
+        content: 'Please link your Discord by following this image:',
+        files: [link1, link2, link3],
+        ephemeral: true,
+      });
+
+      return;
+    }
+
 
     if(interaction.commandName === 'reg'){
       const competition = rA(store, gCK(interaction));
