@@ -1365,14 +1365,11 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if(interaction.commandName === 'link'){
-      const competition = rA(store, gCK(interaction));
-      const leagueNumber = gLC(interaction, competition, admin);
-
-      const link1 = new MessageAttachment('./images/Profile1.png', { name: 'link_step1.png' });
-      const link2 = new MessageAttachment('./images/Profile2.png', { name: 'link_step2.png' });
-      const link3 = new MessageAttachment('./images/Profile3.png', { name: 'link_step3.png' });
+      const link1 = new MessageAttachment('./images/Profile1.png', 'link_step1.png');
+      const link2 = new MessageAttachment('./images/Profile2.png', 'link_step2.png');
+      const link3 = new MessageAttachment('./images/Profile3.png', 'link_step3.png');
       await interaction.reply({
-        content: 'Please link your Discord by following this image:',
+        content: 'Link your discord by following the red arrows:',
         files: [link1, link2, link3],
         ephemeral: true,
       });
