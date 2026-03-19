@@ -1364,9 +1364,9 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if(interaction.commandName === 'link'){
-      const link1 = new MessageAttachment(path.join(__dirname, 'images', 'Profile1.png'), 'link_step1.png');
-      const link2 = new MessageAttachment(path.join(__dirname, 'images', 'Profile2.png'), 'link_step2.png');
-      const link3 = new MessageAttachment(path.join(__dirname, 'images', 'Profile3.png'), 'link_step3.png');
+      const link1 = new MessageAttachment('/home/container/Images/Profile1.png', 'link_step1.png');
+      const link2 = new MessageAttachment('/home/container/Images/Profile2.png', 'link_step2.png');
+      const link3 = new MessageAttachment('/home/container/Images/Profile3.png', 'link_step3.png');
       await interaction.reply({
         content: 'Link your discord by following the red arrows:',
         files: [link1, link2, link3],
