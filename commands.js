@@ -44,14 +44,6 @@ module.exports = [
   {
     name: 'reg',
     description: 'Register yourself for the competition.',
-    options: [
-      {
-        name: 'ign',
-        description: 'Your mcsr username.',
-        type: 'STRING',
-        required: true,
-      },
-    ],
   },
   {
     name: 'admin_reg',

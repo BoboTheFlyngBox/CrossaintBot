@@ -1106,6 +1106,18 @@ function impM(c, seed, rows){
   return { matched, missing };
 }
 
+async function getUserDataFromDiscord(id) {
+  try{
+      const response=await fetch(`https://api.mcsrranked.com/users/discord.${id}`);
+      if(!response.ok){
+        throw new Error(`Network error: ${response.status} ${response.statusText}`);
+      }
+      return await response.json();
+    } catch(err){
+      throw new Error(`Failed to fetch user ${id}: ${err.message}`);
+    }
+}
+
 const client = new Client({
   intents: [Intents.FLAGS.GUILDS],
 });
@@ -1370,11 +1382,14 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      const userData = await getUserDataFromDiscord(interaction.user.id);
+      const ign = userData.data.nickname;
+
       competition.registeredPlayers[interaction.user.id] = {
         userId: interaction.user.id,
         username: interaction.user.username,
         discordUsername: interaction.user.username,
-        ign: interaction.options.getString('ign', true).trim(),
+        ign: ign,
         registeredAt: new Date().toISOString(),
       };
       sCR(competition);
