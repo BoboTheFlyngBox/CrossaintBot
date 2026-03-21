@@ -210,8 +210,16 @@ module.exports = [
     ],
   },
   {
-    name: 'l',
-    description: 'Show the current competition leaderboard for your league.',
+    name: 'lb',
+    description: 'Show the current competition leaderboard of a certain league.',
+    options: [
+      {
+        name: 'league',
+        description: 'League to view the leaderboard of. Defaults to your league.',
+        type: 'INTEGER',
+        required: false,
+      },
+    ],
   },
   {
     name: 'stats',
