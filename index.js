@@ -1742,16 +1742,24 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    if(interaction.commandName === 'l'){
-      const competition = rC(store, gCK(interaction));
-      const leagueNumber = gLC(interaction, competition, admin);
-
-      if(competition.leagueNumber !== leagueNumber){
-        await interaction.reply({ content: `This channel is running League ${competition.leagueNumber}.`, ephemeral: true });
-        return;
+    if(interaction.commandName === 'lb'){
+      let league = interaction.options.getInteger('league');
+      let competition = "";
+      if (league == null){
+        league = gLM(interaction);
       }
-
-      await interaction.reply(fLB(competition));
+      for (const channel of Object.keys(store.channels)){
+        if (store.channels[channel]['competition'] == null) continue;
+        const number = store.channels[channel]['competition']['leagueNumber'];
+        if (number != league) continue;
+        competition = rC(store, channel);
+        break;
+      }
+      
+      await interaction.reply({
+        content: competition == "" ? "Please enter a valid league number" : fLB(competition),
+        ephemeral: true
+      });
       return;
     }
 
