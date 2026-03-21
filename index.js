@@ -951,6 +951,44 @@ function fFR(competition){
   return lines.join('\n');
 }
 
+function chunkMsg(text, maxLength = 2000){
+  if(!text || text.length <= maxLength){
+    return [text];
+  }
+
+  const lines = text.split('\n');
+  const chunks = [];
+  let current = '';
+
+  for(const line of lines){
+    const next = current ? `${current}\n${line}` : line;
+    if(next.length <= maxLength){
+      current = next;
+      continue;
+    }
+
+    if(current){
+      chunks.push(current);
+    }
+
+    if(line.length <= maxLength){
+      current = line;
+      continue;
+    }
+
+    for(let index = 0; index < line.length; index += maxLength){
+      chunks.push(line.slice(index, index + maxLength));
+    }
+    current = '';
+  }
+
+  if(current){
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
 function fSR(competition, seed){
   const standings = gSD(competition, seed);
 
@@ -1268,7 +1306,11 @@ client.on('interactionCreate', async (interaction) => {
       await uPinMsg(interaction.channel, competition);
       svS(store);
 
-      await interaction.reply(fFR(competition));
+      const messages = chunkMsg(fFR(competition));
+      await interaction.reply(messages[0]);
+      for(let index = 1; index < messages.length; index += 1){
+        await interaction.followUp(messages[index]);
+      }
       return;
     }
 
