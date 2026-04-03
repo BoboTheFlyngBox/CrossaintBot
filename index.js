@@ -41,31 +41,49 @@ async function parseWebResponse(response){
   }
 }
 
-async function pushToWeb(endpoint, payload, method = 'POST'){
+async function pushToWeb(endpoint, payload, method = 'POST', timeoutMs = 10000){
   if(!WEBSITE_API_KEY){
     throw new Error('WEBSITE_API_KEY is not configured.');
   }
 
-  const response = await fetch(gWebUrl(endpoint), {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': WEBSITE_API_KEY,
-    },
-    body: JSON.stringify(payload),
-  });
-  const parsed = await parseWebResponse(response);
+  const controller = new AbortController();
+  
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if(!response.ok){
-    const errorMessage =
-      parsed?.error ||
-      parsed?.message ||
-      (typeof parsed === 'string' ? parsed : null) ||
-      `${response.status} ${response.statusText}`;
-    throw new Error(`Website API ${method} ${endpoint} failed: ${errorMessage}`);
+  try {
+    const response = await fetch(gWebUrl(endpoint), {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': WEBSITE_API_KEY,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal, 
+    });
+    
+    const parsed = await parseWebResponse(response);
+
+    if(!response.ok){
+      const errorMessage =
+        parsed?.error ||
+        parsed?.message ||
+        (typeof parsed === 'string' ? parsed : null) ||
+        `${response.status} ${response.statusText}`;
+      throw new Error(`Website API ${method} ${endpoint} failed: ${errorMessage}`);
+    }
+
+    return parsed;
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Website API ${method} ${endpoint} timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+    
+  } finally {
+    // Always clear the timeout so it doesn't cause memory leaks or run unnecessarily
+    clearTimeout(timeoutId);
   }
-
-  return parsed;
 }
 
 function mkS() {
@@ -2228,7 +2246,7 @@ client.on('interactionCreate', async (interaction) => {
         await pushToWeb('/api/write/player', {
           ...mkCP(competition),
           uuid: rUuid(registeredPlayer, fPN(registeredPlayer)),
-        }, 'DELETE');
+        }, 'PATCH');
       }
 
       rmRP(competition, interaction.user.id);
@@ -2268,7 +2286,7 @@ client.on('interactionCreate', async (interaction) => {
         await pushToWeb('/api/write/player', {
           ...mkCP(competition),
           uuid: rUuid(removedPlayer, fPN(removedPlayer)),
-        }, 'DELETE');
+        }, 'PATCH');
       }
 
       rmRP(competition, targetUser.id);
@@ -2375,6 +2393,9 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: 'Only users with the League Administrator role can promote a player.', ephemeral: true });
         return;
       }
+      
+      // Defer reply since we're doing api calls
+      await interaction.deferReply({ ephemeral: true });
 
       const targetUser = interaction.options.getUser('user', true);
       const member = await interaction.guild.members.fetch(targetUser.id);
@@ -2426,6 +2447,9 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: 'Only users with the League Administrator role can demote a player.', ephemeral: true });
         return;
       }
+
+      // Defer reply since we're doing api calls
+      await interaction.deferReply({ ephemeral: true });
 
       const targetUser = interaction.options.getUser('user', true);
       const member = await interaction.guild.members.fetch(targetUser.id);
@@ -2566,7 +2590,7 @@ client.on('interactionCreate', async (interaction) => {
         await pushToWeb('/api/write/match/clear', {
           ...mkCP(competition),
           matchNumber: Number(seed.name),
-        }, 'DELETE');
+        }, 'PATCH');
       }
 
       seed.results = mkDR(competition);
