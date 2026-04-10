@@ -20,6 +20,72 @@ const MAX_TIME = {
 const WEBSITE_URL = process.env.WEBSITE_URL
 const WEBSITE_API_KEY = process.env.WEBSITE_API_KEY
 
+function gWebUrl(endpoint){
+  if(!WEBSITE_URL){
+    throw new Error('WEBSITE_URL is not configured.');
+  }
+
+  return `${WEBSITE_URL.replace(/\/+$/, '')}${endpoint}`;
+}
+
+async function parseWebResponse(response){
+  const raw = await response.text();
+  if(!raw){
+    return null;
+  }
+
+  try{
+    return JSON.parse(raw);
+  } catch(error){
+    return raw;
+  }
+}
+
+async function pushToWeb(endpoint, payload, method = 'POST', timeoutMs = 10000){
+  if(!WEBSITE_API_KEY){
+    throw new Error('WEBSITE_API_KEY is not configured.');
+  }
+
+  const controller = new AbortController();
+  
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(gWebUrl(endpoint), {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': WEBSITE_API_KEY,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal, 
+    });
+    
+    const parsed = await parseWebResponse(response);
+
+    if(!response.ok){
+      const errorMessage =
+        parsed?.error ||
+        parsed?.message ||
+        (typeof parsed === 'string' ? parsed : null) ||
+        `${response.status} ${response.statusText}`;
+      throw new Error(`Website API ${method} ${endpoint} failed: ${errorMessage}`);
+    }
+
+    return parsed;
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Website API ${method} ${endpoint} timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+    
+  } finally {
+    // Always clear the timeout so it doesn't cause memory leaks or run unnecessarily
+    clearTimeout(timeoutId);
+  }
+}
+
 function mkS() {
   return { settings: { leagueLimits: { ...MAX_TIME }, pendingDisplacements: {}, loggingEnabled: true }, channels: {} };
 }
@@ -74,6 +140,7 @@ function migS(parsed){
                       ...seed,
                       editingEnabled: seed.editingEnabled !== false,
                       imported: seed.imported === true,
+                      rankedMatchId: seed.rankedMatchId || null,
                       results: seed.results || {},
                     },
                   ]),
@@ -99,6 +166,7 @@ function migS(parsed){
     store.channels[channelId] = {
       competition: {
         leagueNumber: week.leagueNumber,
+        week: Number(week.weekNumber || week.number || weekId) || null,
         maxTimeLimitSeconds: week.maxTimeLimitSeconds,
         status: 'active',
         startedAt: week.createdAt || new Date().toISOString(),
@@ -117,6 +185,7 @@ function migS(parsed){
             {
               ...seed,
               editingEnabled: seed.editingEnabled !== false,
+              rankedMatchId: seed.rankedMatchId || null,
               results: seed.results || {},
             },
           ]),
@@ -653,6 +722,9 @@ function nC(competition){
     return null;
   }
 
+  const normalizedWeek = Number(competition.week ?? competition.weekNumber);
+  competition.week = Number.isInteger(normalizedWeek) && normalizedWeek > 0 ? normalizedWeek : null;
+  competition.weekNumber = competition.week;
   competition.status = competition.status || 'active';
   competition.seeds = competition.seeds || {};
   competition.pointAdjustments = competition.pointAdjustments || {};
@@ -695,6 +767,7 @@ function nC(competition){
   for(const seed of Object.values(competition.seeds)){
     seed.results = seed.results || {};
     seed.playerCount = Number(seed.playerCount || Object.keys(seed.results).length || 0);
+    seed.rankedMatchId = seed.rankedMatchId || null;
     if(seed.timeLimitSeconds && seed.timeLimitSeconds < 1000 * 60){
       seed.timeLimitSeconds *= 1000;
     }
@@ -740,6 +813,29 @@ function rA(store, channelId){
     throw new Error('This competition has ended. Reset it before starting a new one.');
   }
   return competition;
+}
+
+function gWN(competition){
+  const weekNumber = Number(competition?.week ?? competition?.weekNumber);
+  if(!Number.isInteger(weekNumber) || weekNumber < 1){
+    throw new Error('This competition is missing a valid week number.');
+  }
+  return weekNumber;
+}
+
+function mkCP(competition){
+  return {
+    leagueTier: Number(competition.leagueNumber),
+    weekNumber: gWN(competition),
+  };
+}
+
+function rUuid(value, contextLabel){
+  const uuid = gUuid(value);
+  if(!uuid){
+    throw new Error(`${contextLabel} is missing a Minecraft UUID.`);
+  }
+  return uuid;
 }
 
 function gSeed(competition, seedName){
@@ -949,6 +1045,46 @@ function gSD(competition, seed){
     }));
 
   return [...finishers, ...dnfs];
+}
+
+// This function should return true if there is an imported seed so that we cant unreg a player after a seed is imported. 
+function iHR(competition, userId){
+  return Object.values(competition.seeds || {}).some(
+    (seed) => (seed.imported === true || Boolean(seed.rankedMatchId)),
+  );
+}
+
+function gRid(seed){
+  return seed.rankedMatchId || null;
+}
+
+function mkMRP(competition, seed, rankedMatchId){
+  return {
+    ...mkCP(competition),
+    matchNumber: Number(seed.name),
+    rankedMatchId,
+    results: gSD(competition, seed).map((entry) => ({
+      uuid: rUuid(entry, fPN(entry)),
+      timeMs: entry.dnf ? null : entry.timeSeconds,
+      dnf: Boolean(entry.dnf),
+      placement: typeof entry.placement === 'number' ? entry.placement : null,
+      pointsWon: Number(entry.seedPoints || 0),
+    })),
+  };
+}
+
+async function syncMovementsToWeb(competition, movementPlan){
+  const payload = {
+    ...mkCP(competition),
+    promotedUuids: movementPlan.promotions.map((entry) => rUuid(entry, fPN(entry))),
+    demotedUuids: movementPlan.demotions.map((entry) => rUuid(entry, fPN(entry))),
+  };
+
+  try {
+    return await pushToWeb('/api/write/movements', payload, 'PATCH');
+  } catch(error){
+    throw error;
+  }
 }
 
 function formatPlacement(entry){
@@ -1670,19 +1806,30 @@ client.on('interactionCreate', async (interaction) => {
       const leagueNumber = interaction.options.getInteger('league', true);
       const week = interaction.options.getInteger('week', true);
       const maxTimeLimitSeconds = gLim(store, leagueNumber);
-      const infoChannel = await clrInfo(interaction.guild, leagueNumber);
+      const infoChannel = interaction.guild?.channels?.cache?.find(
+        (entry) => entry.name === gInfoName(leagueNumber) && entry.isText(),
+      );
 
       if(!infoChannel){
         await interaction.editReply({ content: `Could not find #${gInfoName(leagueNumber)}.` });
         return;
       }
 
+      const startedAt = new Date().toISOString();
+      await pushToWeb('/api/write/competition', {
+        leagueTier: leagueNumber,
+        weekNumber: week,
+        maxTimeLimitMs: maxTimeLimitSeconds,
+        startingTime: Date.now(),
+      }, 'POST');
+      await clrInfo(interaction.guild, leagueNumber);
+
       channel.competition = {
         leagueNumber,
         week, 
         maxTimeLimitSeconds,
         status: 'active',
-        startedAt: new Date().toISOString(),
+        startedAt,
         endedAt: null,
         currentSeedKey: null,
         seeds: {},
@@ -1730,6 +1877,13 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      if(!iT(competition)){
+        await pushToWeb('/api/write/competition/status', {
+          ...mkCP(competition),
+          status: 'ended',
+        }, 'PATCH');
+      }
+
       competition.status = 'ended';
       competition.endedAt = new Date().toISOString();
       competition.registrationOpenBeforeEnd = competition.registrationOpen;
@@ -1772,6 +1926,13 @@ client.on('interactionCreate', async (interaction) => {
       if(competition.status !== 'ended'){
         await interaction.reply({ content: 'This competition is not currently ended.', ephemeral: true });
         return;
+      }
+
+      if(!iT(competition)){
+        await pushToWeb('/api/write/competition/status', {
+          ...mkCP(competition),
+          status: 'active',
+        }, 'PATCH');
       }
 
       const finalChannel = competition.finalChannelId ? interaction.guild.channels.cache.get(competition.finalChannelId) : null;
@@ -1835,12 +1996,20 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      if(!iT(competition)){
+        await pushToWeb('/api/write/match/create', {
+          ...mkCP(competition),
+          matchNumber: Number(seedName),
+        }, 'POST');
+      }
+
       competition.seeds[seedKey] = {
         name: seedName,
         playerCount: gRC(competition),
         timeLimitSeconds: competition.maxTimeLimitSeconds,
         editingEnabled: true,
         imported: false,
+        rankedMatchId: null,
         createdAt: new Date().toISOString(),
         results: mkDR(competition),
       };
@@ -1879,10 +2048,12 @@ client.on('interactionCreate', async (interaction) => {
       const matchId = interaction.options.getString('match_id')?.trim() || await gHostMatchId(competition, seed);
       const response = await getMatchData(matchId);
       const rows = parseResponse(response, seed.timeLimitSeconds);
+      const previousResults = JSON.parse(JSON.stringify(seed.results || {}));
+      const previousImported = seed.imported;
+      const previousRankedMatchId = seed.rankedMatchId || null;
       const result = impM(competition, seed, rows);
+      seed.rankedMatchId = matchId;
       seed.imported = true;
-      await uLbMsg(interaction.guild, competition, true);
-      svS(store);
 
       const lines = [
         `Imported match **${matchId}** into seed **${seed.name}**.`,
@@ -1892,39 +2063,14 @@ client.on('interactionCreate', async (interaction) => {
       if(result.missing.length > 0){
         lines.push(`Unmatched MCSR names: ${result.missing.join(', ')}`);
       }
-      
-      const results = [];
-      i = 1
-      for (const player of result.matched){
-        results.push({
-          playerName: player.name.split("(")[0],
-          pointsWon: player.dnf ? 0 : gPts(gRC(competition), i),
-          timeMs: player.timeMs,
-          placement: i,
-        })
-        i++
-      }
-      
+
       if(!iT(competition)){
         try{
-          const request = await fetch(WEBSITE_URL + "/api/write/match", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": WEBSITE_API_KEY
-          },
-          body: JSON.stringify({
-            "weekNumber": Number(competition.week),
-            "matchNumber": Number(seed.name),
-            "leagueTier": Number(competition.leagueNumber),
-            "rankedMatchId": matchId,
-            "results": results,
-          }),
-        });
-          if (!request.ok){
-            throw new Error(`${request.status} error, could not import match data to website.`);
-          }
+          await pushToWeb('/api/write/match/results', mkMRP(competition, seed, matchId), 'POST');
         } catch (error){
+          seed.results = previousResults;
+          seed.imported = previousImported;
+          seed.rankedMatchId = previousRankedMatchId;
           console.log(error.stack);
           throw new Error(`${error.message} - Failed to post match ${matchId}`);
         }
@@ -1932,6 +2078,8 @@ client.on('interactionCreate', async (interaction) => {
         lines.push('Test mode is enabled, so the website API was not updated.');
       }
 
+      await uLbMsg(interaction.guild, competition, true);
+      svS(store);
       await interaction.editReply(lines.join('\n'));
       return;
     }
@@ -1991,6 +2139,15 @@ client.on('interactionCreate', async (interaction) => {
 
       const userData = await getUserDataFromDiscord(interaction.user.id);
 
+      if(!iT(competition)){
+        await pushToWeb('/api/write/player', {
+          ...mkCP(competition),
+          uuid: userData.uuid,
+          ign: userData.ign,
+          ...(userData.elo !== null ? { elo: userData.elo } : {}),
+        }, 'POST');
+      }
+
       competition.registeredPlayers[interaction.user.id] ={
         userId: interaction.user.id,
         username: interaction.user.username,
@@ -2032,6 +2189,15 @@ client.on('interactionCreate', async (interaction) => {
 
       const userData = await getUserDataFromDiscord(targetUser.id);
 
+      if(!iT(competition)){
+        await pushToWeb('/api/write/player', {
+          ...mkCP(competition),
+          uuid: userData.uuid,
+          ign: userData.ign,
+          ...(userData.elo !== null ? { elo: userData.elo } : {}),
+        }, 'POST');
+      }
+
       competition.registeredPlayers[targetUser.id] = {
         userId: targetUser.id,
         username: targetUser.username,
@@ -2068,6 +2234,18 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      if(iHR(competition, interaction.user.id)){
+        await interaction.reply({ content: 'You cannot unregister after match results have been imported for this competition.', ephemeral: true });
+        return;
+      }
+
+      if(!iT(competition)){
+        await pushToWeb('/api/write/player/unregister', {
+          ...mkCP(competition),
+          uuid: rUuid(registeredPlayer, fPN(registeredPlayer)),
+        }, 'PATCH');
+      }
+
       rmRP(competition, interaction.user.id);
       if(!iT(competition)){
         await rmCWR(interaction.guild, interaction.user.id);
@@ -2089,12 +2267,26 @@ client.on('interactionCreate', async (interaction) => {
 
       const competition = rA(store, gCK(interaction));
       const targetUser = interaction.options.getUser('user', true);
-      const removedPlayer = rmRP(competition, targetUser.id);
+      const removedPlayer = competition.registeredPlayers[targetUser.id] || null;
 
       if(!removedPlayer){
         await interaction.reply({ content: `${targetUser.username} is not currently registered for this competition.`, ephemeral: true });
         return;
       }
+
+      if(iHR(competition, targetUser.id)){
+        await interaction.reply({ content: `${targetUser.username} cannot be removed after match results have been imported for this competition.`, ephemeral: true });
+        return;
+      }
+
+      if(!iT(competition)){
+        await pushToWeb('/api/write/player/unregister', {
+          ...mkCP(competition),
+          uuid: rUuid(removedPlayer, fPN(removedPlayer)),
+        }, 'PATCH');
+      }
+
+      rmRP(competition, targetUser.id);
 
       if(!iT(competition)){
         await rmCWR(interaction.guild, targetUser.id);
@@ -2198,6 +2390,9 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: 'Only users with the League Administrator role can promote a player.', ephemeral: true });
         return;
       }
+      
+      // Defer reply since we're doing api calls
+      await interaction.deferReply({ ephemeral: true });
 
       const targetUser = interaction.options.getUser('user', true);
       const member = await interaction.guild.members.fetch(targetUser.id);
@@ -2224,8 +2419,22 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      await member.roles.remove(sourceRole);
-      await member.roles.add(targetRole);
+      const userData = await getUserDataFromDiscord(targetUser.id);
+      await pushToWeb('/api/write/player/league', {
+        uuid: userData.uuid,
+        leagueTier: currentLeague - 1,
+      }, 'PATCH');
+
+      try{
+        await member.roles.remove(sourceRole);
+        await member.roles.add(targetRole);
+      } catch(error){
+        await pushToWeb('/api/write/player/league', {
+          uuid: userData.uuid,
+          leagueTier: currentLeague,
+        }, 'PATCH').catch(() => {});
+        throw error;
+      }
       await interaction.reply({ content: `Promoted ${targetUser.username} to League ${currentLeague - 1}.`, ephemeral: true });
       return;
     }
@@ -2235,6 +2444,9 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: 'Only users with the League Administrator role can demote a player.', ephemeral: true });
         return;
       }
+
+      // Defer reply since we're doing api calls
+      await interaction.deferReply({ ephemeral: true });
 
       const targetUser = interaction.options.getUser('user', true);
       const member = await interaction.guild.members.fetch(targetUser.id);
@@ -2261,8 +2473,22 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      await member.roles.remove(sourceRole);
-      await member.roles.add(targetRole);
+      const userData = await getUserDataFromDiscord(targetUser.id);
+      await pushToWeb('/api/write/player/league', {
+        uuid: userData.uuid,
+        leagueTier: currentLeague + 1,
+      }, 'PATCH');
+
+      try{
+        await member.roles.remove(sourceRole);
+        await member.roles.add(targetRole);
+      } catch(error){
+        await pushToWeb('/api/write/player/league', {
+          uuid: userData.uuid,
+          leagueTier: currentLeague,
+        }, 'PATCH').catch(() => {});
+        throw error;
+      }
       await interaction.reply({ content: `Demoted ${targetUser.username} to League ${currentLeague + 1}.`, ephemeral: true });
       return;
     }
@@ -2283,6 +2509,11 @@ client.on('interactionCreate', async (interaction) => {
       if(competition.movementsApplied){
         await interaction.reply({ content: 'Promotions and demotions have already been applied for this match.', ephemeral: true });
         return;
+      }
+
+      const movementPlan = gMP(competition);
+      if(!iT(competition)){
+        await syncMovementsToWeb(competition, movementPlan);
       }
 
       const movementResults = await applyLeagueMovements(interaction, competition);
@@ -2314,7 +2545,16 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      competition.pointAdjustments[targetUser.id] = (competition.pointAdjustments[targetUser.id] || 0) + points;
+      const nextAdjustment = (competition.pointAdjustments[targetUser.id] || 0) + points;
+      if(!iT(competition)){
+        await pushToWeb('/api/write/adjustment', {
+          ...mkCP(competition),
+          uuid: rUuid(competition.registeredPlayers[targetUser.id], fPN(competition.registeredPlayers[targetUser.id])),
+          manualAdjustmentPoints: nextAdjustment,
+        }, 'PATCH');
+      }
+
+      competition.pointAdjustments[targetUser.id] = nextAdjustment;
       await uLbMsg(interaction.guild, competition);
       svS(store);
 
@@ -2328,7 +2568,8 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      const competition = rC(store, gCK(interaction));
+      // Require that the competition is active to prevent clearing on ended comps.
+      const competition = rA(store, gCK(interaction));
       const seedName = interaction.options.getInteger('seed');
       const seed = gRS(competition, seedName);
 
@@ -2340,6 +2581,13 @@ client.on('interactionCreate', async (interaction) => {
           ephemeral: true,
         });
         return;
+      }
+
+      if(!iT(competition)){
+        await pushToWeb('/api/write/match/clear', {
+          ...mkCP(competition),
+          matchNumber: Number(seed.name),
+        }, 'PATCH');
       }
 
       seed.results = mkDR(competition);
@@ -2378,6 +2626,10 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      const previousEntry = seed.results[targetUser.id]
+        ? JSON.parse(JSON.stringify(seed.results[targetUser.id]))
+        : null;
+      const previousRankedMatchId = seed.rankedMatchId || null;
       seed.results[targetUser.id] = {
         userId: targetUser.id,
         username: gDU(competition.registeredPlayers[targetUser.id]),
@@ -2390,6 +2642,20 @@ client.on('interactionCreate', async (interaction) => {
         timeSeconds: null,
         submittedAt: null,
       };
+      seed.rankedMatchId = gRid(seed);
+      if(!iT(competition)){
+        try{
+          await pushToWeb('/api/write/match/results', mkMRP(competition, seed, seed.rankedMatchId), 'POST');
+        } catch(error){
+          if(previousEntry){
+            seed.results[targetUser.id] = previousEntry;
+          } else{
+            delete seed.results[targetUser.id];
+          }
+          seed.rankedMatchId = previousRankedMatchId;
+          throw error;
+        }
+      }
       if(seed.imported){
         await uLbMsg(interaction.guild, competition);
       }
@@ -2445,12 +2711,30 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      const previousEntry = seed.results[targetUser.id]
+        ? JSON.parse(JSON.stringify(seed.results[targetUser.id]))
+        : null;
+      const previousRankedMatchId = seed.rankedMatchId || null;
       aSR(
         seed,
         competition.registeredPlayers[targetUser.id] || { id: targetUser.id, discordUsername: targetUser.username, ign: targetUser.username },
         timeSeconds,
         dnf,
       );
+      seed.rankedMatchId = gRid(seed);
+      if(!iT(competition)){
+        try{
+          await pushToWeb('/api/write/match/results', mkMRP(competition, seed, seed.rankedMatchId), 'POST');
+        } catch(error){
+          if(previousEntry){
+            seed.results[targetUser.id] = previousEntry;
+          } else{
+            delete seed.results[targetUser.id];
+          }
+          seed.rankedMatchId = previousRankedMatchId;
+          throw error;
+        }
+      }
       if(seed.imported){
         await uLbMsg(interaction.guild, competition);
       }
